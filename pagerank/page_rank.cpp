@@ -4,9 +4,13 @@
 #include <cmath>
 #include <omp.h>
 #include <utility>
+#include <iostream>
+#include <chrono>
 
 #include "../common/CycleTimer.h"
 #include "../common/graph.h"
+
+using namespace std;
 
 
 // pageRank --
@@ -19,43 +23,77 @@
 void pageRank(Graph g, double* solution, double damping, double convergence)
 {
 
+    // initialize vertex weights to uniform probability. Double
+    // precision scores are used to avoid underflow for large graphs
 
-  // initialize vertex weights to uniform probability. Double
-  // precision scores are used to avoid underflow for large graphs
+    // maybe the nodes will initially be convered? idt need to account for this
+    //cout << "starting" << endl;
+    bool converged = false;
+    int numNodes = num_nodes(g);
+    double equal_prob = 1.0 / numNodes;
+    // try some data locality stuff by putting into 1 array
+    double score_old_array[numNodes];
+    double score_new_array[numNodes];
+    double score_old_divide_array[numNodes];
+    double *score_old = score_old_array;
+    double *score_new = score_new_array;
+    double *score_old_divide = score_old_divide_array;
+    int no_outgoing[numNodes];
+    //cout << "done" << endl;
 
-  int numNodes = num_nodes(g);
-  double equal_prob = 1.0 / numNodes;
-  for (int i = 0; i < numNodes; ++i) {
-    solution[i] = equal_prob;
-  }
-  
-  
-  /*
-     CS149 students: Implement the page rank algorithm here.  You
-     are expected to parallelize the algorithm using openMP.  Your
-     solution may need to allocate (and free) temporary arrays.
+    int list_size = 0;
+    //#pragma omp parallel for
+    for (int i = 0; i < numNodes; i++) {
+        score_new[i] = equal_prob;
 
-     Basic page rank pseudocode is provided below to get you started:
+        // No outgoing edges
+        //if (!outgoing_size(g, i)) {
+            //int my_index = 0;
+            //#pragma omp atomic capture
+            //{my_index = list_size; list_size++;}
+            //cout << "index" << my_index << endl;
+            //no_outgoing[my_index] = i;
+        //}
+    }
+    int chunk_size = 2;
+    while (!converged) {
+        double *temp = score_old;
+        score_old = score_new;
+        score_new = temp;
+        // try next time to predivide the pagerank vectors by outgoing size
+        //#pragma omp parallel for 
+        for (int i = 0; i < numNodes; i++) {
+            int outgoing = outgoing_size(g, i);
+            if (outgoing) {
+                score_old_divide[i] = score_old[i] / outgoing;
+            }
+        }
 
-     // initialization: see example code above
-     score_old[vi] = 1/numNodes;
+        // compute score_new[vi] for all nodes vi:
+        //#pragma omp parallel for schedule(dynamic, chunk_size)
+        for (int i = 0; i < numNodes; i++) {
+            const Vertex* begin = incoming_begin(g, i);
+            const Vertex* end = incoming_end(g, i);
+            score_new[i] = 0;
+            for (const Vertex* v = begin; v != end; v++) {
+                // outgoing can't be 0 here
+                score_new[i] += score_old_divide[*v];
+            }
+            score_new[i] = (damping * score_new[i]) + (1.0-damping) * equal_prob;
+            for (int j = 0; j < list_size; j++) {
+              score_new[i] += score_old[no_outgoing[j]] / numNodes;
+            }
+        }
+        double global_diff = 0;
+        //#pragma omp parallel for reduction(+:global_diff)
+        for (int i = 0; i < numNodes; i++) {
+            global_diff += fabs(score_new[i] - score_old[i]);
+        }
+        converged = (global_diff < convergence);
+    }
 
-     while (!converged) {
-
-       // compute score_new[vi] for all nodes vi:
-       score_new[vi] = sum over all nodes vj reachable from incoming edges
-                          { score_old[vj] / number of edges leaving vj  }
-       score_new[vi] = (damping * score_new[vi]) + (1.0-damping) / numNodes;
-
-       score_new[vi] += sum over all nodes v in graph with no outgoing edges
-                          { damping * score_old[v] / numNodes }
-
-       // compute how much per-node scores have changed
-       // quit once algorithm has converged
-
-       global_diff = sum over all nodes vi { abs(score_new[vi] - score_old[vi]) };
-       converged = (global_diff < convergence)
-     }
-
-   */
+    //#pragma omp parallel for 
+    for (int i = 0; i < numNodes; i++) {
+        solution[i] = score_new[i];
+    }
 }
