@@ -5,6 +5,7 @@
 #include <string.h>
 #include <cstddef>
 #include <omp.h>
+#include <iostream>
 
 #include "../common/CycleTimer.h"
 #include "../common/graph.h"
@@ -13,8 +14,22 @@
 #define NOT_VISITED_MARKER -1
 #define CHUNK_SIZE 100
 
+using namespace std;
 void vertex_set_clear(vertex_set* list) {
     list->count = 0;
+}
+void vertex_set_build(int* distances, vertex_set* list, int count, int numNodes) {
+    list->count = 0;
+    count++;
+    #pragma omp parallel for
+    for (int i = 0; i < numNodes; i++) {
+        if (distances[i] == count) {
+            int index = -1;
+            #pragma omp atomic capture
+            {index = list->count; list->count++;}
+            list->vertices[index] = i;
+        }
+    }
 }
 
 void vertex_set_init(vertex_set* list, int count) {
@@ -29,10 +44,10 @@ void vertex_set_init(vertex_set* list, int count) {
 void top_down_step(
     Graph g,
     vertex_set* frontier,
-    vertex_set* new_frontier,
-    int* distances)
+    int* distances,
+    int counter)
 {
-
+    counter++;
     // maybe make this dynamic
     #pragma omp parallel for schedule(dynamic, CHUNK_SIZE)
     for (int i=0; i<frontier->count; i++) {
@@ -48,11 +63,8 @@ void top_down_step(
         for (int neighbor=start_edge; neighbor<end_edge; neighbor++) {
             int outgoing = g->outgoing_edges[neighbor];
 
-            if (distances[outgoing] == NOT_VISITED_MARKER && __sync_bool_compare_and_swap(&distances[outgoing], NOT_VISITED_MARKER, distances[node]+1)) {
-                int index = -1;
-                #pragma omp atomic capture
-                {index = new_frontier->count; new_frontier->count++;}
-                new_frontier->vertices[index] = outgoing;
+            if (distances[outgoing] == NOT_VISITED_MARKER) {
+                distances[outgoing] = counter;
             }
         }
     }
@@ -67,7 +79,7 @@ void bottom_up_step(
 {
 
     // maybe make this dynamic
-    #pragma omp parallel for schedule(dynamic, CHUNK_SIZE)
+    #pragma omp parallel for //schedule(dynamic, CHUNK_SIZE)
     for (int i=0; i<g->num_nodes; i++) {
         if (distances[i] == NOT_VISITED_MARKER) {
 
@@ -116,6 +128,7 @@ void bfs_top_down(Graph graph, solution* sol) {
     // setup frontier with the root node
     frontier->vertices[frontier->count++] = ROOT_NODE_ID;
     sol->distances[ROOT_NODE_ID] = 0;
+    int count = 0;
 
     while (frontier->count != 0) {
 
@@ -123,19 +136,15 @@ void bfs_top_down(Graph graph, solution* sol) {
         double start_time = CycleTimer::currentSeconds();
 #endif
 
-        vertex_set_clear(new_frontier);
-
-        top_down_step(graph, frontier, new_frontier, sol->distances);
+        top_down_step(graph, frontier, sol->distances, count);
 
 #ifdef VERBOSE
     double end_time = CycleTimer::currentSeconds();
     printf("frontier=%-10d %.4f sec\n", frontier->count, end_time - start_time);
 #endif
 
-        // swap pointers
-        vertex_set* tmp = frontier;
-        frontier = new_frontier;
-        new_frontier = tmp;
+        vertex_set_build(sol->distances, frontier, count, graph->num_nodes);
+        count++;
     }
 }
 
