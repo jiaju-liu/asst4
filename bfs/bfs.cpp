@@ -5,6 +5,8 @@
 #include <string.h>
 #include <cstddef>
 #include <omp.h>
+#include <vector>
+#include <iostream>
 
 #include "../common/CycleTimer.h"
 #include "../common/graph.h"
@@ -12,6 +14,7 @@
 #define ROOT_NODE_ID 0
 #define NOT_VISITED_MARKER -1
 #define CHUNK_SIZE 100
+using namespace std;
 
 void vertex_set_clear(vertex_set* list) {
     list->count = 0;
@@ -36,7 +39,6 @@ void top_down_step(
     // maybe make this dynamic
     #pragma omp parallel for schedule(dynamic, CHUNK_SIZE)
     for (int i=0; i<frontier->count; i++) {
-
         int node = frontier->vertices[i];
 
         int start_edge = g->outgoing_starts[node];
@@ -58,16 +60,16 @@ void top_down_step(
     }
 }
 
-void bottom_up_step(
+bool bottom_up_step(
     Graph g,
-    vertex_set* frontier,
-    vertex_set* new_frontier,
     int* distances,
     int counter)
 {
-
+    int progress = 0;
+    int new_counter = counter + 1;
+    vector<int> myProgress(g->num_nodes,0);
     // maybe make this dynamic
-    #pragma omp parallel for schedule(dynamic, CHUNK_SIZE)
+    #pragma omp parallel for schedule(dynamic, CHUNK_SIZE) 
     for (int i=0; i<g->num_nodes; i++) {
         if (distances[i] == NOT_VISITED_MARKER) {
 
@@ -84,16 +86,18 @@ void bottom_up_step(
             for (const Vertex* node = start; node != end; node++) {
                 int incoming = *node;
                 if (distances[incoming] == counter) {
-                    distances[i] = counter+1;
-                    int index = -1;
-                    #pragma omp atomic capture
-                    {index = new_frontier->count; new_frontier->count++;}
-                    new_frontier->vertices[index] = incoming;
+                    distances[i] = new_counter;
+                    myProgress[i] = 1;
                     break;
                 }
             }
+            if (myProgress[i]) {
+                #pragma omp atomic
+                progress+= myProgress[i];
+            }
         }
     }
+    return progress != 0;
 }
 // Implements top-down BFS.
 //
@@ -141,42 +145,28 @@ void bfs_top_down(Graph graph, solution* sol) {
 
 void bfs_bottom_up(Graph graph, solution* sol)
 {
-    vertex_set list1;
-    vertex_set list2;
-    vertex_set_init(&list1, graph->num_nodes);
-    vertex_set_init(&list2, graph->num_nodes);
-
-    vertex_set* frontier = &list1;
-    vertex_set* new_frontier = &list2;
 
     // initialize all nodes to NOT_VISITED
     for (int i=0; i<graph->num_nodes; i++)
         sol->distances[i] = NOT_VISITED_MARKER;
 
-    // setup frontier with the root node
-    frontier->vertices[frontier->count++] = ROOT_NODE_ID;
     sol->distances[ROOT_NODE_ID] = 0;
     int count = 0;
+    bool progress = true;
 
-    while (frontier->count != 0) {
+    while (progress) {
 
 #ifdef VERBOSE
         double start_time = CycleTimer::currentSeconds();
 #endif
 
-        vertex_set_clear(new_frontier);
-
-        bottom_up_step(graph, frontier, new_frontier, sol->distances, count);
+        progress = bottom_up_step(graph, sol->distances, count);
 
 #ifdef VERBOSE
     double end_time = CycleTimer::currentSeconds();
     printf("frontier=%-10d %.4f sec\n", frontier->count, end_time - start_time);
 #endif
 
-        // swap pointers
-        vertex_set* tmp = frontier;
-        frontier = new_frontier;
-        new_frontier = tmp;
         count++;
     }
 }
