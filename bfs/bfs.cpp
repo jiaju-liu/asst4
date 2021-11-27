@@ -67,11 +67,12 @@ bool bottom_up_step(
 {
     int progress = 0;
     int new_counter = counter + 1;
-    vector<int> myProgress(g->num_nodes,0);
+    //vector<int> myProgress(g->num_nodes,0);
     // maybe make this dynamic
-    #pragma omp parallel for schedule(dynamic, CHUNK_SIZE) 
+    #pragma omp parallel for schedule(dynamic, g->num_nodes / 1000) 
     for (int i=0; i<g->num_nodes; i++) {
         if (distances[i] == NOT_VISITED_MARKER) {
+            int myProgress = 0;
 
             const Vertex* start = incoming_begin(g, i);
             const Vertex* end = incoming_end(g, i);
@@ -87,13 +88,12 @@ bool bottom_up_step(
                 int incoming = *node;
                 if (distances[incoming] == counter) {
                     distances[i] = new_counter;
-                    myProgress[i] = 1;
+                    myProgress = 1;
                     break;
                 }
             }
-            if (myProgress[i]) {
-                #pragma omp atomic
-                progress+= myProgress[i];
+            if (myProgress) {
+                progress = 1;
             }
         }
     }
