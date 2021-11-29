@@ -123,18 +123,18 @@ void bfs_top_down(Graph graph, solution* sol) {
     int count = 0;
     bool progress = true;
 
-    while (progress) {
+    while (top_down_step(graph, sol->distances, count++)) {
 
-#ifdef VERBOSE
-        double start_time = CycleTimer::currentSeconds();
-#endif
+// #ifdef VERBOSE
+//         double start_time = CycleTimer::currentSeconds();
+// #endif
 
-        progress = top_down_step(graph, sol->distances, count++);
+//         progress = top_down_step(graph, sol->distances, count++);
 
-#ifdef VERBOSE
-    double end_time = CycleTimer::currentSeconds();
-    printf("frontier=%-10d %.4f sec\n", frontier->count, end_time - start_time);
-#endif
+// #ifdef VERBOSE
+//     double end_time = CycleTimer::currentSeconds();
+//     printf("frontier=%-10d %.4f sec\n", frontier->count, end_time - start_time);
+// #endif
     }
 }
 
@@ -149,18 +149,18 @@ void bfs_bottom_up(Graph graph, solution* sol)
     int count = 0;
     bool progress = true;
 
-    while (progress) {
+    while (bottom_up_step(graph, sol->distances, count++)) {
 
-#ifdef VERBOSE
-        double start_time = CycleTimer::currentSeconds();
-#endif
+// #ifdef VERBOSE
+//         double start_time = CycleTimer::currentSeconds();
+// #endif
 
-        progress = bottom_up_step(graph, sol->distances, count++);
+//         progress = bottom_up_step(graph, sol->distances, count++);
 
-#ifdef VERBOSE
-    double end_time = CycleTimer::currentSeconds();
-    printf("frontier=%-10d %.4f sec\n", frontier->count, end_time - start_time);
-#endif
+// #ifdef VERBOSE
+//     double end_time = CycleTimer::currentSeconds();
+//     printf("frontier=%-10d %.4f sec\n", frontier->count, end_time - start_time);
+// #endif
 
     }
 }
