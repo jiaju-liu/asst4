@@ -29,7 +29,7 @@ void vertex_set_init(vertex_set* list, int count) {
 // Take one step of "top-down" BFS.  For each vertex on the frontier,
 // follow all outgoing edges, and add all neighboring vertices to the
 // new_frontier.
-int top_down_step(
+int top_down_step_hybrid(
     Graph g,
     int* distances,
     int counter)
@@ -58,6 +58,37 @@ int top_down_step(
         }
     }
     return progress;
+}
+
+void top_down_step(
+    Graph g,
+    vertex_set* frontier,
+    vertex_set* new_frontier,
+    int* distances)
+{
+
+    // maybe make this dynamic
+    #pragma omp parallel for schedule(auto)
+    for (int i=0; i<frontier->count; i++) {
+        int node = frontier->vertices[i];
+
+        int start_edge = g->outgoing_starts[node];
+        int end_edge = (node == g->num_nodes - 1)
+                           ? g->num_edges
+                           : g->outgoing_starts[node + 1];
+
+        // attempt to add all neighbors to the new frontier
+        for (int neighbor=start_edge; neighbor<end_edge; neighbor++) {
+            int outgoing = g->outgoing_edges[neighbor];
+
+            if (distances[outgoing] == NOT_VISITED_MARKER && __sync_bool_compare_and_swap(&distances[outgoing], NOT_VISITED_MARKER, distances[node]+1)) {
+                int index = -1;
+                #pragma omp atomic capture
+                {index = new_frontier->count; new_frontier->count++;}
+                new_frontier->vertices[index] = outgoing;
+            }
+        }
+    }
 }
 
 int bottom_up_step(
@@ -96,15 +127,33 @@ int bottom_up_step(
 // distance to the root is stored in sol.distances.
 void bfs_top_down(Graph graph, solution* sol) {
 
+    vertex_set list1;
+    vertex_set list2;
+    vertex_set_init(&list1, graph->num_nodes);
+    vertex_set_init(&list2, graph->num_nodes);
+
+    vertex_set* frontier = &list1;
+    vertex_set* new_frontier = &list2;
+
     // initialize all nodes to NOT_VISITED
+    #pragma omp parallel for schedule(auto)
     for (int i=0; i<graph->num_nodes; i++)
         sol->distances[i] = NOT_VISITED_MARKER;
 
     // setup frontier with the root node
+    frontier->vertices[frontier->count++] = ROOT_NODE_ID;
     sol->distances[ROOT_NODE_ID] = 0;
-    int count = 0;
 
-    while (top_down_step(graph, sol->distances, count++)) {
+    while (frontier->count != 0) {
+
+        vertex_set_clear(new_frontier);
+
+        top_down_step(graph, frontier, new_frontier, sol->distances);
+
+        // swap pointers
+        vertex_set* tmp = frontier;
+        frontier = new_frontier;
+        new_frontier = tmp;
     }
 }
 
@@ -132,13 +181,13 @@ void bfs_hybrid(Graph graph, solution* sol)
 
     sol->distances[ROOT_NODE_ID] = 0;
     int count = 0;
-    int progress = top_down_step(graph, sol->distances, count++);
+    int progress = top_down_step_hybrid(graph, sol->distances, count++);
 
     while (progress) {
         if (progress > thresh) {
             progress = bottom_up_step(graph, sol->distances, count++);
         } else {
-            progress = top_down_step(graph, sol->distances, count++);
+            progress = top_down_step_hybrid(graph, sol->distances, count++);
         }
     }
 }
